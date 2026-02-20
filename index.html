@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HandKey — Gesture Keyboard</title>
+
+  <!-- p5.js & ml5.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #111118;
+      --surface2: #1a1a26;
+      --border: #2a2a40;
+      --accent: #7c3aed;
+      --accent2: #06b6d4;
+      --accent3: #f59e0b;
+      --text: #e2e2f0;
+      --muted: #6b6b8a;
+      --danger: #ef4444;
+      --success: #10b981;
+      --glow: 0 0 20px rgba(124, 58, 237, 0.4);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Syne', sans-serif;
+      background: transparent;
+      color: var(--text);
+      user-select: none;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    #app {
+      width: 100%;
+      height: 100vh;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 0 40px rgba(124,58,237,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+
+    /* TITLE BAR */
+    #titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      -webkit-app-region: drag;
+      cursor: move;
+    }
+
+    #titlebar .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #titlebar .logo-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    #titlebar .logo-text {
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    #titlebar .controls {
+      display: flex;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .ctrl-btn {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      font-size: 10px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+    }
+    .ctrl-btn.close { background: var(--danger); }
+    .ctrl-btn.min { background: var(--accent3); }
+    .ctrl-btn:hover { transform: scale(1.15); filter: brightness(1.2); }
+
+    /* STATUS BAR */
+    #statusbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      display: inline-block;
+      margin-right: 6px;
+      transition: all 0.3s;
+    }
+    .status-dot.active { background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse 1.5s infinite; }
+    .status-dot.detecting { background: var(--accent3); box-shadow: 0 0 8px var(--accent3); animation: pulse 0.5s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .toggle-btn {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      padding: 3px 10px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .toggle-btn:hover, .toggle-btn.on { background: var(--accent); border-color: var(--accent); }
+
+    /* CANVAS AREA */
+    #canvas-container {
+      position: relative;
+      width: 100%;
+      height: 200px;
+      background: #000;
+      overflow: hidden;
+    }
+
+    #canvas-container canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    #gesture-overlay {
+      position: absolute;
+      top: 8px; right: 8px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      color: var(--accent2);
+      backdrop-filter: blur(10px);
+    }
+
+    #cooldown-bar {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 3px;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      transition: width 0.1s linear;
+    }
+
+    /* LAST ACTION */
+    #last-action {
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      min-height: 44px;
+    }
+
+    #last-action .label { font-size: 10px; color: var(--muted); font-family: 'Space Mono', monospace; }
+    #last-action .value {
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      color: var(--accent2);
+      transition: all 0.3s;
+    }
+    #last-action .value.flash {
+      color: var(--success);
+      text-shadow: 0 0 10px var(--success);
+    }
+
+    /* TABS */
+    #tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .tab {
+      flex: 1;
+      padding: 8px;
+      text-align: center;
+      font-size: 11px;
+      font-family: 'Space Mono', monospace;
+      cursor: pointer;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+
+    /* PANELS */
+    #panel-container {
+      flex: 1;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .panel { display: none; padding: 12px; }
+    .panel.active { display: block; }
+
+    /* GESTURE LIST */
+    .gesture-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .gesture-card:hover { border-color: var(--accent); background: rgba(124,58,237,0.08); }
+    .gesture-card.active-gesture {
+      border-color: var(--success);
+      background: rgba(16, 185, 129, 0.1);
+      box-shadow: 0 0 12px rgba(16,185,129,0.2);
+    }
+
+    .gesture-icon {
+      width: 40px; height: 40px;
+      background: var(--surface);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .gesture-info { flex: 1; min-width: 0; }
+    .gesture-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .gesture-desc { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    .gesture-key {
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 3px 8px;
+      color: var(--accent2);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .edit-btn {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .edit-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* MODAL */
+    #modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    #modal-overlay.open { display: flex; }
+
+    #modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      width: 340px;
+      box-shadow: var(--glow);
+    }
+
+    #modal h3 {
+      font-size: 14px;
+      font-weight: 800;
+      margin-bottom: 16px;
+      color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .form-group { margin-bottom: 14px; }
+    .form-group label {
+      display: block;
+      font-size: 10px;
+      font-family: 'Space Mono', monospace;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .form-group input, .form-group select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-family: 'Space Mono', monospace;
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
+    .form-group select option { background: var(--surface2); }
+
+    .checkbox-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px;
+    }
+    .checkbox-row input[type=checkbox] {
+      width: 16px; height: 16px;
+      accent-color: var(--accent);
+    }
+    .checkbox-row label { font-size: 11px; color: var(--text); margin: 0; }
+
+    .modal-actions {
+      display: flex; gap: 8px; margin-top: 16px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 9px;
+      border-radius: 7px;
+      border: none;
+      cursor: pointer;
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #6d28d9; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .btn-ghost:hover { border-color: var(--text); color: var(--text); }
+
+    /* SETTINGS PANEL */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-label { font-size: 12px; }
+    .setting-desc { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    input[type=range] {
+      accent-color: var(--accent);
+      width: 100px;
+    }
+
+    .switch {
+      position: relative; width: 40px; height: 22px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider-sw {
+      position: absolute; inset: 0;
+      background: var(--border);
+      border-radius: 22px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    .slider-sw::before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+    .switch input:checked + .slider-sw { background: var(--accent); }
+    .switch input:checked + .slider-sw::before { transform: translateX(18px); }
+
+    /* GUIDE PANEL */
+    .guide-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+    .guide-card .guide-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    .guide-card .guide-icon { font-size: 24px; }
+    .guide-card .guide-title { font-size: 12px; font-weight: 600; }
+    .guide-card .guide-subtitle { font-size: 10px; color: var(--muted); }
+    .guide-card p { font-size: 11px; color: var(--muted); line-height: 1.6; }
+
+    /* CONFIDENCE meter */
+    #confidence-meter {
+      position: absolute;
+      bottom: 8px; left: 8px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-family: 'Space Mono', monospace;
+      font-size: 9px;
+      color: var(--muted);
+      backdrop-filter: blur(10px);
+    }
+
+    #confidence-fill {
+      height: 3px;
+      border-radius: 2px;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.2s;
+      margin-top: 3px;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <!-- TITLE BAR -->
+  <div id="titlebar">
+    <div class="logo">
+      <div class="logo-icon">🤚</div>
+      <span class="logo-text">HANDKEY</span>
+    </div>
+    <div class="controls">
+      <button class="ctrl-btn min" onclick="minimizeApp()">−</button>
+      <button class="ctrl-btn close" onclick="closeApp()">✕</button>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div id="statusbar">
+    <div style="display:flex;align-items:center;">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text" style="font-family:'Space Mono',monospace;font-size:10px;">Initialisation...</span>
+    </div>
+    <button class="toggle-btn" id="toggle-detect" onclick="toggleDetection()">ACTIVER</button>
+  </div>
+
+  <!-- CAMERA + P5 -->
+  <div id="canvas-container">
+    <div id="p5-canvas"></div>
+    <div id="gesture-overlay">
+      <div id="gesture-name">— aucun geste —</div>
+    </div>
+    <div id="confidence-meter">
+      CONFIANCE
+      <div id="confidence-fill"></div>
+    </div>
+    <div id="cooldown-bar"></div>
+  </div>
+
+  <!-- LAST ACTION -->
+  <div id="last-action">
+    <span class="label">DERNIÈRE ACTION</span>
+    <span class="value" id="last-action-value">—</span>
+  </div>
+
+  <!-- TABS -->
+  <div id="tabs">
+    <div class="tab active" onclick="switchTab('gestures')">🤚 Gestes</div>
+    <div class="tab" onclick="switchTab('settings')">⚙️ Réglages</div>
+    <div class="tab" onclick="switchTab('guide')">📖 Guide</div>
+  </div>
+
+  <!-- PANELS -->
+  <div id="panel-container">
+    <!-- GESTURES -->
+    <div class="panel active" id="panel-gestures">
+      <div id="gesture-list"></div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="panel" id="panel-settings">
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Seuil de confiance</div>
+          <div class="setting-desc">Précision minimale de détection</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" min="0.3" max="0.99" step="0.01" value="0.7" id="conf-slider"
+            oninput="settings.confidence=parseFloat(this.value);document.getElementById('conf-val').textContent=Math.round(this.value*100)+'%'"/>
+          <span id="conf-val" style="font-family:'Space Mono',monospace;font-size:10px;width:32px;">70%</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Délai entre gestes</div>
+          <div class="setting-desc">Évite les répétitions accidentelles</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" min="200" max="2000" step="100" value="800" id="cooldown-slider"
+            oninput="settings.cooldown=parseInt(this.value);document.getElementById('cd-val').textContent=this.value+'ms'"/>
+          <span id="cd-val" style="font-family:'Space Mono',monospace;font-size:10px;width:40px;">800ms</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Toujours au premier plan</div>
+          <div class="setting-desc">Fenêtre au-dessus des autres</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" checked onchange="toggleAlwaysOnTop(this.checked)"/>
+          <span class="slider-sw"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Son de confirmation</div>
+          <div class="setting-desc">Bip lors d'une action</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" checked onchange="settings.sound=this.checked"/>
+          <span class="slider-sw"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Cadres par seconde</div>
+          <div class="setting-desc">Performance de la détection</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" min="10" max="60" step="5" value="30" id="fps-slider"
+            oninput="settings.fps=parseInt(this.value);document.getElementById('fps-val').textContent=this.value+'fps'"/>
+          <span id="fps-val" style="font-family:'Space Mono',monospace;font-size:10px;width:40px;">30fps</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- GUIDE -->
+    <div class="panel" id="panel-guide">
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">☝️</div>
+          <div><div class="guide-title">Index pointé</div><div class="guide-subtitle">Espace</div></div>
+        </div>
+        <p>Levez uniquement l'index, les autres doigts repliés. Maintenez 1 seconde.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">✌️</div>
+          <div><div class="guide-title">Deux doigts (V)</div><div class="guide-subtitle">Entrée</div></div>
+        </div>
+        <p>Index et majeur levés, symbole de la victoire/paix.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">🤟</div>
+          <div><div class="guide-title">Pouce + Petit doigt</div><div class="guide-subtitle">Tab</div></div>
+        </div>
+        <p>Pouce et auriculaire levés, symbole "I love you" en ASL.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">👌</div>
+          <div><div class="guide-title">OK (Pouce + Index)</div><div class="guide-subtitle">Backspace</div></div>
+        </div>
+        <p>Pouce et index formant un cercle, autres doigts levés.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">🤙</div>
+          <div><div class="guide-title">Appel téléphonique</div><div class="guide-subtitle">Escape</div></div>
+        </div>
+        <p>Pouce et auriculaire levés horizontalement près de l'oreille.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">🖐️</div>
+          <div><div class="guide-title">Main ouverte (5)</div><div class="guide-subtitle">Ctrl+C (Copier)</div></div>
+        </div>
+        <p>Tous les 5 doigts ouverts et écartés, paume vers la caméra.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">✊</div>
+          <div><div class="guide-title">Poing fermé</div><div class="guide-subtitle">Ctrl+V (Coller)</div></div>
+        </div>
+        <p>Tous les doigts repliés, poing fermé vers la caméra.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">👍</div>
+          <div><div class="guide-title">Pouce levé</div><div class="guide-subtitle">Ctrl+Z (Annuler)</div></div>
+        </div>
+        <p>Uniquement le pouce levé, les autres doigts repliés.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">🤘</div>
+          <div><div class="guide-title">Cornes du diable</div><div class="guide-subtitle">; (point-virgule)</div></div>
+        </div>
+        <p>Index et auriculaire levés, pouce replié sur le majeur et l'annulaire.</p>
+      </div>
+      <div class="guide-card">
+        <div class="guide-header">
+          <div class="guide-icon">🤞</div>
+          <div><div class="guide-title">Doigts croisés</div><div class="guide-subtitle">: (deux-points)</div></div>
+        </div>
+        <p>Index et majeur croisés l'un sur l'autre, autres doigts repliés.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div id="modal-overlay">
+  <div id="modal">
+    <h3>✏️ Modifier le raccourci</h3>
+    <input type="hidden" id="modal-gesture-id"/>
+    <div class="form-group">
+      <label>Geste</label>
+      <input type="text" id="modal-gesture-name" readonly style="opacity:0.6;cursor:not-allowed;"/>
+    </div>
+    <div class="form-group">
+      <label>Touche principale</label>
+      <select id="modal-key">
+        <option value="space">Space (Espace)</option>
+        <option value="enter">Enter (Entrée)</option>
+        <option value="tab">Tab</option>
+        <option value="backspace">Backspace</option>
+        <option value="escape">Escape</option>
+        <option value="delete">Delete</option>
+        <option value="semicolon">; (point-virgule)</option>
+        <option value="colon">: (deux-points)</option>
+        <option value="up">↑ Flèche haut</option>
+        <option value="down">↓ Flèche bas</option>
+        <option value="left">← Flèche gauche</option>
+        <option value="right">→ Flèche droite</option>
+        <option value="a">A</option>
+        <option value="b">B</option>
+        <option value="c">C</option>
+        <option value="d">D</option>
+        <option value="e">E</option>
+        <option value="f">F</option>
+        <option value="z">Z</option>
+        <option value="s">S</option>
+        <option value="v">V</option>
+        <option value="x">X</option>
+        <option value="f5">F5</option>
+        <option value="f11">F11</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Modificateurs (optionnel)</label>
+      <div class="checkbox-row">
+        <input type="checkbox" id="mod-ctrl"/>
+        <label for="mod-ctrl">Ctrl</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="mod-shift"/>
+        <label for="mod-shift">Shift</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="mod-alt"/>
+        <label for="mod-alt">Alt</label>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveGesture()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+// ─── SETTINGS ────────────────────────────────────────
+const settings = { confidence: 0.70, cooldown: 800, sound: true, fps: 30 };
+
+// ─── GESTURE CONFIG ───────────────────────────────────
+let gestures = [
+  { id: 0, emoji: '☝️', name: 'Index pointé',          desc: 'Un seul doigt levé',              key: 'space',     mods: [],         label: 'Space' },
+  { id: 1, emoji: '✌️', name: 'Deux doigts (V)',        desc: 'Index + Majeur',                  key: 'enter',     mods: [],         label: 'Enter' },
+  { id: 2, emoji: '🤟', name: 'Pouce + Petit doigt',    desc: 'ASL "I love you"',                key: 'tab',       mods: [],         label: 'Tab' },
+  { id: 3, emoji: '👌', name: 'OK',                     desc: 'Pouce + Index cercle',            key: 'backspace', mods: [],         label: 'Backspace' },
+  { id: 4, emoji: '🤙', name: 'Téléphone',              desc: 'Pouce + Auriculaire',             key: 'escape',    mods: [],         label: 'Escape' },
+  { id: 5, emoji: '🖐️', name: 'Main ouverte',           desc: '5 doigts ouverts',                key: 'c',         mods: ['control'],label: 'Ctrl+C' },
+  { id: 6, emoji: '✊', name: 'Poing fermé',            desc: 'Tous doigts repliés',             key: 'v',         mods: ['control'],label: 'Ctrl+V' },
+  { id: 7, emoji: '👍', name: 'Pouce levé',             desc: 'Uniquement pouce',                key: 'z',         mods: ['control'],label: 'Ctrl+Z' },
+  { id: 8, emoji: '🤘', name: 'Cornes du diable',       desc: 'Index + Auriculaire',             key: 'semicolon', mods: [],         label: ';' },
+  { id: 9, emoji: '🤞', name: 'Doigts croisés',         desc: 'Index + Majeur croisés',          key: 'colon',     mods: ['shift'],  label: ':' },
+];
+
+let activeGestureId = -1;
+let isDetecting = false;
+let lastTriggerTime = 0;
+
+// ─── RENDER GESTURE LIST ──────────────────────────────
+function renderGestureList() {
+  const list = document.getElementById('gesture-list');
+  list.innerHTML = gestures.map(g => `
+    <div class="gesture-card ${activeGestureId === g.id ? 'active-gesture' : ''}" id="gcard-${g.id}">
+      <div class="gesture-icon">${g.emoji}</div>
+      <div class="gesture-info">
+        <div class="gesture-name">${g.name}</div>
+        <div class="gesture-desc">${g.desc}</div>
+      </div>
+      <div class="gesture-key">${g.label}</div>
+      <button class="edit-btn" onclick="openModal(${g.id})">✏️</button>
+    </div>
+  `).join('');
+}
+
+// ─── TABS ─────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', ['gestures','settings','guide'][i] === name);
+  });
+  document.querySelectorAll('.panel').forEach((p) => {
+    p.classList.toggle('active', p.id === `panel-${name}`);
+  });
+}
+
+// ─── MODAL ────────────────────────────────────────────
+function openModal(id) {
+  const g = gestures[id];
+  document.getElementById('modal-gesture-id').value = id;
+  document.getElementById('modal-gesture-name').value = `${g.emoji} ${g.name}`;
+  document.getElementById('modal-key').value = g.key;
+  document.getElementById('mod-ctrl').checked = g.mods.includes('control');
+  document.getElementById('mod-shift').checked = g.mods.includes('shift');
+  document.getElementById('mod-alt').checked = g.mods.includes('alt');
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function saveGesture() {
+  const id = parseInt(document.getElementById('modal-gesture-id').value);
+  const key = document.getElementById('modal-key').value;
+  const mods = [];
+  if (document.getElementById('mod-ctrl').checked) mods.push('control');
+  if (document.getElementById('mod-shift').checked) mods.push('shift');
+  if (document.getElementById('mod-alt').checked) mods.push('alt');
+
+  const keyLabel = document.getElementById('modal-key').options[document.getElementById('modal-key').selectedIndex].text.split(' ')[0];
+  const modLabel = mods.map(m => m === 'control' ? 'Ctrl' : m.charAt(0).toUpperCase() + m.slice(1)).join('+');
+
+  gestures[id].key = key;
+  gestures[id].mods = mods;
+  gestures[id].label = modLabel ? `${modLabel}+${keyLabel}` : keyLabel;
+
+  closeModal();
+  renderGestureList();
+}
+
+// ─── CONTROLS ─────────────────────────────────────────
+function closeApp() { ipcRenderer.send('close-app'); }
+function minimizeApp() { ipcRenderer.send('minimize-app'); }
+function toggleAlwaysOnTop(val) { ipcRenderer.send('toggle-always-on-top', val); }
+
+function toggleDetection() {
+  isDetecting = !isDetecting;
+  const btn = document.getElementById('toggle-detect');
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  if (isDetecting) {
+    btn.textContent = 'DÉSACTIVER';
+    btn.classList.add('on');
+    dot.className = 'status-dot active';
+    txt.textContent = 'Détection active';
+  } else {
+    btn.textContent = 'ACTIVER';
+    btn.classList.remove('on');
+    dot.className = 'status-dot';
+    txt.textContent = 'Détection en pause';
+    activeGestureId = -1;
+    document.getElementById('gesture-name').textContent = '— aucun geste —';
+    renderGestureList();
+  }
+}
+
+// ─── KEY TRIGGER ──────────────────────────────────────
+function triggerGesture(gestureId, confidence) {
+  const now = Date.now();
+  if (now - lastTriggerTime < settings.cooldown) return;
+  lastTriggerTime = now;
+
+  const g = gestures[gestureId];
+  ipcRenderer.send('press-key', { key: g.key, modifiers: g.mods });
+
+  // Flash UI
+  const val = document.getElementById('last-action-value');
+  val.textContent = `${g.emoji} ${g.name} → ${g.label}`;
+  val.classList.add('flash');
+  setTimeout(() => val.classList.remove('flash'), 600);
+
+  if (settings.sound) {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+    osc.start(); osc.stop(ctx.currentTime + 0.1);
+  }
+
+  // Cooldown bar animation
+  const bar = document.getElementById('cooldown-bar');
+  bar.style.width = '100%';
+  bar.style.transition = 'none';
+  requestAnimationFrame(() => {
+    bar.style.transition = `width ${settings.cooldown}ms linear`;
+    bar.style.width = '0%';
+  });
+}
+
+// ─── HAND POSE DETECTION (p5 + ml5) ──────────────────
+function setupP5() {
+  new p5(function(p) {
+    let video, handPose, hands = [];
+    let modelReady = false;
+
+    p.setup = function() {
+      const cnv = p.createCanvas(480, 200);
+      cnv.parent('p5-canvas');
+      video = p.createCapture(p.VIDEO);
+      video.size(480, 200);
+      video.hide();
+
+      document.getElementById('status-text').textContent = 'Chargement du modèle...';
+
+      handPose = ml5.handPose(video, { maxHands: 1, flipHorizontal: true }, function() {
+        modelReady = true;
+        document.getElementById('status-text').textContent = 'Modèle prêt — cliquez ACTIVER';
+        document.getElementById('status-dot').className = 'status-dot active';
+        document.getElementById('toggle-detect').disabled = false;
+      });
+
+      handPose.on('predict', function(results) {
+        hands = results;
+      });
+
+      p.frameRate(30);
+    };
+
+    p.draw = function() {
+      p.image(video, 0, 0, 480, 200);
+
+      if (!modelReady || hands.length === 0) {
+        if (isDetecting) {
+          document.getElementById('status-dot').className = 'status-dot active';
+          document.getElementById('status-text').textContent = 'Cherche une main...';
+        }
+        activeGestureId = -1;
+        document.getElementById('gesture-name').textContent = '— aucun geste —';
+        document.getElementById('confidence-fill').style.width = '0%';
+        return;
+      }
+
+      const hand = hands[0];
+      const kp = hand.keypoints;
+
+      // Draw skeleton
+      p.stroke(124, 58, 237, 180);
+      p.strokeWeight(2);
+      p.noFill();
+      const connections = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+      for (const [a, b] of connections) {
+        if (kp[a] && kp[b]) p.line(kp[a].x, kp[a].y, kp[b].x, kp[b].y);
+      }
+
+      // Draw points
+      for (const pt of kp) {
+        const isFingerTip = [4,8,12,16,20].includes(pt.name ? parseInt(pt.name) : kp.indexOf(pt));
+        p.fill(isDetecting ? [6,182,212] : [100,100,120]);
+        p.noStroke();
+        p.ellipse(pt.x, pt.y, isFingerTip ? 8 : 5);
+      }
+
+      if (!isDetecting) return;
+
+      // Gesture detection
+      const detectedId = detectGesture(kp);
+      const conf = hand.score || 0.8;
+
+      document.getElementById('confidence-fill').style.width = Math.round(conf * 100) + '%';
+
+      if (detectedId >= 0 && conf >= settings.confidence) {
+        document.getElementById('status-dot').className = 'status-dot detecting';
+        document.getElementById('status-text').textContent = `${gestures[detectedId].emoji} ${gestures[detectedId].name}`;
+        document.getElementById('gesture-name').textContent = `${gestures[detectedId].emoji} ${gestures[detectedId].name}`;
+        document.getElementById('confidence-fill').style.background = conf > 0.85 ? '#10b981' : '#f59e0b';
+
+        if (activeGestureId !== detectedId) {
+          activeGestureId = detectedId;
+          renderGestureList();
+          triggerGesture(detectedId, conf);
+        }
+      } else {
+        activeGestureId = -1;
+        document.getElementById('gesture-name').textContent = '— aucun geste —';
+        document.getElementById('status-dot').className = 'status-dot active';
+        document.getElementById('status-text').textContent = 'Détection active';
+        renderGestureList();
+      }
+    };
+  });
+}
+
+// ─── GESTURE CLASSIFIER ───────────────────────────────
+function detectGesture(kp) {
+  if (!kp || kp.length < 21) return -1;
+
+  // Helper: is finger extended?
+  function isExtended(tipIdx, pipIdx, mcpIdx) {
+    const tip = kp[tipIdx], pip = kp[pipIdx], mcp = kp[mcpIdx], wrist = kp[0];
+    const distTipWrist = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+    const distMcpWrist = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
+    return distTipWrist > distMcpWrist * 1.3;
+  }
+
+  function thumbExtended() {
+    const tip = kp[4], base = kp[2], wrist = kp[0];
+    return Math.hypot(tip.x - wrist.x, tip.y - wrist.y) > Math.hypot(base.x - wrist.x, base.y - wrist.y) * 1.4;
+  }
+
+  const idx = isExtended(8, 6, 5);   // index
+  const mid = isExtended(12, 10, 9); // majeur
+  const rng = isExtended(16, 14, 13);// annulaire
+  const pin = isExtended(20, 18, 17);// auriculaire
+  const thm = thumbExtended();        // pouce
+
+  // Distance index–pouce (pour OK)
+  function thumbIndexDist() {
+    return Math.hypot(kp[4].x - kp[8].x, kp[4].y - kp[8].y);
+  }
+  const handSize = Math.hypot(kp[0].x - kp[9].x, kp[0].y - kp[9].y);
+
+  // Doigts croisés: index et majeur proches mais tous deux levés
+  function fingersCrossed() {
+    if (!idx || !mid) return false;
+    const dist = Math.hypot(kp[8].x - kp[12].x, kp[8].y - kp[12].y);
+    return dist < handSize * 0.3 && !rng && !pin;
+  }
+
+  // 0 - Index pointé: ☝️
+  if (idx && !mid && !rng && !pin && !thm) return 0;
+  // 1 - Deux doigts V: ✌️
+  if (idx && mid && !rng && !pin && !thm) return 1;
+  // 2 - Pouce + petit doigt: 🤟
+  if (!idx && !mid && !rng && pin && thm) return 2;
+  // 3 - OK (pouce + index cercle): 👌
+  if (thumbIndexDist() < handSize * 0.35 && mid && rng && pin) return 3;
+  // 4 - Téléphone (pouce + auriculaire): 🤙
+  if (thm && !idx && !mid && !rng && pin) return 4;
+  // 5 - Main ouverte: 🖐️
+  if (idx && mid && rng && pin && thm) return 5;
+  // 6 - Poing: ✊
+  if (!idx && !mid && !rng && !pin && !thm) return 6;
+  // 7 - Pouce levé: 👍
+  if (thm && !idx && !mid && !rng && !pin) return 7;
+  // 8 - Cornes (index + auriculaire): 🤘
+  if (idx && !mid && !rng && pin && !thm) return 8;
+  // 9 - Doigts croisés: 🤞
+  if (fingersCrossed()) return 9;
+
+  return -1;
+}
+
+// ─── INIT ─────────────────────────────────────────────
+renderGestureList();
+setupP5();
+</script>
+</body>
+</html>

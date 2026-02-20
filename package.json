@@ -1,0 +1,16 @@
+{
+  "name": "handpose-keyboard",
+  "version": "1.0.0",
+  "description": "Hand Gesture to Keyboard Shortcuts via ml5.js + p5.js",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0"
+  },
+  "dependencies": {
+    "robotjs": "^0.6.0"
+  }
+}
